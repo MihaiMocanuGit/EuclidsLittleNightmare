@@ -26,8 +26,8 @@ execute_process(
 enable_testing()
 
 add_subdirectory(third_party)
-#add_subdirectory(src)
+add_subdirectory(src)
 
 add_executable(${PROJECT_NAME} main.cpp)
 
-target_link_libraries(${PROJECT_NAME} PRIVATE third_party)
+target_link_libraries(${PROJECT_NAME} PRIVATE third_party src)
