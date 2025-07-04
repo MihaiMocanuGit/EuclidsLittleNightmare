@@ -2,7 +2,16 @@
 
 #include <atomic>
 #include <cmath>
-#include <iostream>
+
+std::array<float, 3> vectorField(std::array<float, 3> x)
+{
+    std::array<float, 3> v = {std::sin(x[0] + x[1]), 0, 0};
+    float norm = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    v[0] /= norm;
+    v[1] /= norm;
+    v[2] /= norm;
+    return v;
+}
 
 int main()
 {
@@ -17,9 +26,10 @@ int main()
     std::array<uint8_t, WIDTH * HEIGHT * CHANNELS> image {};
     constexpr float cameraOrigin[3] = {0.0f, 0.0f, 0.0f};
     constexpr float distanceToViewport {100.0f};
+    constexpr float stepsize = 0.5f;
 
     constexpr float sphereCenter[3] = {0.0f, 0.0f, 200.0f};
-    constexpr float sphereRadius = 50.0f;
+    constexpr float sphereRadius = 75.0f;
 
     for (unsigned pixel_y {0}; pixel_y < HEIGHT; ++pixel_y)
     {
@@ -34,15 +44,35 @@ int main()
             float rayDirVectorNorm =
                 std::sqrt(rayDirVector[0] * rayDirVector[0] + rayDirVector[1] * rayDirVector[1] +
                           rayDirVector[2] * rayDirVector[2]);
+
             rayDirVector[0] /= rayDirVectorNorm;
             rayDirVector[1] /= rayDirVectorNorm;
             rayDirVector[2] /= rayDirVectorNorm;
 
-            for (float t {0.0f}; t < 2000.0f; t += 0.1f)
+            float x_0 = xViewport;
+            float y_0 = yViewport;
+            float z_0 = zViewport;
+
+            for (size_t steps {0}; steps < 5000; ++steps)
             {
-                float x = rayDirVector[0] * t + cameraOrigin[0];
-                float y = rayDirVector[1] * t + cameraOrigin[1];
-                float z = rayDirVector[2] * t + cameraOrigin[2];
+                const auto field = vectorField({x_0, y_0, z_0});
+                float x = (rayDirVector[0] + 0.1f * field[0]) * stepsize + x_0;
+                float y = (rayDirVector[1] + 0.1f * field[1]) * stepsize + y_0;
+                float z = (rayDirVector[2] + 0.1f * field[2]) * stepsize + z_0;
+
+                rayDirVector[0] = x - x_0;
+                rayDirVector[1] = y - y_0;
+                rayDirVector[2] = z - z_0;
+                rayDirVectorNorm = std::sqrt(rayDirVector[0] * rayDirVector[0] +
+                                             rayDirVector[1] * rayDirVector[1] +
+                                             rayDirVector[2] * rayDirVector[2]);
+                rayDirVector[0] /= rayDirVectorNorm;
+                rayDirVector[1] /= rayDirVectorNorm;
+                rayDirVector[2] /= rayDirVectorNorm;
+
+                x_0 = x;
+                y_0 = y;
+                z_0 = z;
 
                 float xs_2 = x - sphereCenter[0];
                 xs_2 *= xs_2;
