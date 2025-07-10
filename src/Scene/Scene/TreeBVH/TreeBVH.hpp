@@ -1,144 +1,130 @@
 #pragma once
 
 #include "Eigen/Geometry"
+#include "Eigen/src/Geometry/AlignedBox.h"
 #include "boost/container/small_vector.hpp"
 
 #include <concepts>
 #include <memory>
+#include <numeric>
 #include <vector>
 
 namespace ELN
 {
 
-// TODO: define a ElementData concept, should it have an embedded boundary?
+namespace BVH
+{
+constexpr int CHILDREN_NO {4};
+constexpr size_t npos {static_cast<size_t>(-1)};
+
+template <std::floating_point Real_t = float>
+using Boundary_t = Eigen::AlignedBox<Real_t, 3>;
+
+template <class ElementData, std::floating_point Real_t>
+class CompactTree;
+
 template <class ElementData, std::floating_point Real_t = float>
-class TreeBVH
+class DiffuseTree
 {
-  public:
-    struct Node;
-    using Tree_t = std::vector<Node>;
-
-    struct ElemIt
-    {
-        size_t pos;
-        Tree_t &bvh;
-    };
-
-    struct CElemIt
-    {
-        size_t pos;
-        const Tree_t &bvh;
-    };
-
   private:
-    constexpr static size_t m_STATIC_CHILD_NO {4};
-    constexpr static size_t m_RESERVE_AMOUNT {128};
+    struct Node
+    {
+        Eigen::AlignedBox<Real_t, 3> boundary;
+        std::vector<std::unique_ptr<Node>> children;
+        Node *parent {nullptr}; // non owning pointer
+        std::unique_ptr<ElementData> data {nullptr};
+    };
 
-    Tree_t m_tree;
+    std::unique_ptr<Node> m_root {nullptr};
+    size_t m_nodeCount {0};
+
+    friend class CompactTree<ElementData, Real_t>;
 
   public:
-    TreeBVH();
+    DiffuseTree() = default;
 
-    /**
-     * @brief Inserts the element into the BVH
-     * @param boundary The bounding box associated to data.
-     * @param data The element to be moved into the BVH.
-     * @return The iterator of the inserted element from the BVH.
-     */
-    ElemIt insertElement(Eigen::AlignedBox<Real_t, 3> &&boundary, ElementData &&data);
+    void build(std::vector<ElementData> &&elements);
+};
 
-    /**
-     * @brief Finds all elements whose boundary boxes contain the given position.
-     * @param position The search point.
-     * @return A vector of elements whose boundary boxes contain the given position.
-     */
-    boost::container::small_vector<const ElementData &, m_STATIC_CHILD_NO>
-        findElements(const Eigen::Vector3<Real_t> &position) const;
+template <class ElementData, std::floating_point Real_t = float>
+class CompactTree
+{
+  private:
+    struct Node
+    {
+        Boundary_t<Real_t> boundary;
+        std::vector<size_t> children;
+        size_t parent {npos};
+        size_t data {npos};
+    };
 
-    /**
-     * @brief Finds all elements whose boundary boxes contain the given position.
-     * @param position The search point.
-     * @return A vector of elements whose boundary boxes contain the given position.
-     */
-    boost::container::small_vector<ElementData &, m_STATIC_CHILD_NO>
-        findElements(const Eigen::Vector3<Real_t> &position);
+    std::vector<Node> m_tree;
+    std::vector<ElementData> m_elements;
+    std::vector<std::reference_wrapper<Boundary_t<Real_t>>> m_boundaries;
 
-    /**
-     * @brief Finds all elements whose boundary boxes contain the given position.
-     * @param position The search point.
-     * @return A vector of iterators corresponding to the elements whose boundary boxes contain the
-     * given position.
-     */
-    boost::container::small_vector<ElemIt, m_STATIC_CHILD_NO>
-        findElementIts(const Eigen::Vector3<Real_t> &position);
+    uint64_t m_mortonOrder(Real_t xPos, Real_t yPos, Real_t zPos, unsigned fractionDigits = 1);
 
-    /**
-     * @brief Gets the element corresponding to the given iterator.
-     * @param it Iterator to Element.
-     * @return The element corresponding to the iterator.
-     */
-    ElementData &get(ElemIt it);
+  public:
+    CompactTree() = default;
 
-    /**
-     * @brief Gets the element corresponding to the given iterator.
-     * @param it Iterator to Element.
-     * @return The element corresponding to the iterator.
-     */
-    const ElementData &get(ElemIt it) const;
+    void build(std::vector<ElementData> &&elements, std::vector<Boundary_t<Real_t>> &&boundaries);
 
-    /**
-     * @brief Removes the element from the BVH.
-     * @param element The element iterator.
-     * @return The removed element.
-     */
-    std::unique_ptr<ElementData> removeElement(ElemIt element);
+    std::vector<std::reference_wrapper<ElementData>>
+        queryPosition(const Eigen::Vector3<Real_t> &position);
 };
 
 template <class ElementData, std::floating_point Real_t>
-struct TreeBVH<ElementData, Real_t>::Node
+uint64_t CompactTree<ElementData, Real_t>::m_mortonOrder(Real_t xPos, Real_t yPos, Real_t zPos,
+                                                         unsigned fractionDigits)
 {
-  public:
-    Eigen::AlignedBox<Real_t, 3> boundaryBox;
-    boost::container::small_vector<ElemIt, m_STATIC_CHILD_NO> children = {};
-    ElemIt parent;
-    std::unique_ptr<ElementData> elementData {nullptr};
+    Real_t multiplier = 1;
+    for (unsigned i {0}; i < fractionDigits; ++i)
+        multiplier *= 10;
+    uint64_t x {static_cast<uint64_t>(xPos * multiplier)};
+    uint64_t y {static_cast<uint64_t>(yPos * multiplier)};
+    uint64_t z {static_cast<uint64_t>(zPos * multiplier)};
 
-    /**
-     * @brief Constructs a new leaf node that will be associated to a set TreeBVH.
-     * @param bvh The TreeBVH into which the node will later be inserted.
-     * @param boundaryBox The boundary associated to the elementData.
-     * @param elementData The elementData of the leaf node.
-     */
-    Node(TreeBVH<ElementData, Real_t> &bvh, Eigen::AlignedBox<Real_t, 3> &&boundaryBox,
-         std::unique_ptr<ElementData> &&elementData)
-        : boundaryBox {std::move(boundaryBox)},                   //
-          elementData {std::make_unique(std::move(elementData))}, //
-          parent {.pos = -1, .bvh = bvh}                          //
+    // The mordon code for 3d coords looks like this:
+    // __00____01____02____03____04____05__....___61____62____63_
+    // x[00]_y[00]_z[00]_x[01]_y[01]_z[01]_...._x[20]_y[20]_z[20]
+    // TODO: extend this to a 64+64+64 byte integer? (Endianness will become important)
+
+    uint64_t coordMask {0x1};
+    uint64_t coordByte {0};
+    uint64_t mordonByte {0};
+    uint64_t mordon {0x0};
+    while (mordonByte < 63)
     {
+        mordon |= ((coordMask & x) >> coordByte) << (mordonByte++);
+        mordon |= ((coordMask & y) >> coordByte) << (mordonByte++);
+        mordon |= ((coordMask & z) >> coordByte) << (mordonByte++);
+        coordByte++;
+        coordMask <<= 1;
     }
-
-    /**
-     * @brief Constructs a new internal node or subtree that will be associated to a set TreeBVH.
-     * @param bvh The TreeBVH into which the node/subtree will later be inserted.
-     * @param boundaryBox The boundary associated to the subtree.
-     * @param children The elementData of the leaf node.
-     */
-    Node(TreeBVH<ElementData, Real_t> &bvh, Eigen::AlignedBox<Real_t, 3> &&boundaryBox = {},
-         boost::container::small_vector<ElemIt, m_STATIC_CHILD_NO> &&children = {})
-        : boundaryBox {std::move(boundaryBox)}, //
-          parent {.pos = -1, .bvh = bvh},       //
-          children {std::move(children)}        //
-    {
-    }
-};
-
-template <class ElementData, std::floating_point Real_t>
-TreeBVH<ElementData, Real_t>::ElemIt
-    TreeBVH<ElementData, Real_t>::insertElement(Eigen::AlignedBox<Real_t, 3> &&boundary,
-                                                ElementData &&data)
-{
-    Node node {.boundaryBox = std::move(boundary), .children = {}, .elementData = std::move(data)};
-    if (m_tree.empty())
-        m_tree.emplace_back()
+    return mordon;
 }
+
+template <class ElementData, std::floating_point Real_t>
+void CompactTree<ElementData, Real_t>::build(std::vector<ElementData> &&elements,
+                                             std::vector<Boundary_t<Real_t>> &&boundaries)
+{
+    std::vector<size_t> permIndexes(elements.size(), 0);
+    std::iota(permIndexes.begin(), permIndexes.end(), 0);
+
+    // Morton sort the elements relative to the center of their bounding boxes
+    std::sort(permIndexes.begin(), permIndexes.end(),
+              [&](auto left, auto right)
+              {
+                  const auto &centerLeft = boundaries[left].center();
+                  const auto &centerRight = boundaries[right].center();
+
+                  uint64_t mordonLeft {m_mortonOrder(centerLeft[0], centerLeft[1], centerLeft[2])};
+
+                  uint64_t mordonRight {
+                      m_mortonOrder(centerRight[0], centerRight[1], centerRight[2])};
+
+                  return mordonLeft < mordonRight;
+              });
+}
+} // namespace BVH
 } // namespace ELN
