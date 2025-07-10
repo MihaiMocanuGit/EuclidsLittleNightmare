@@ -1,7 +1,10 @@
 #include "GUI/GUI.hpp"
+#include "Scene/TreeBVH/TreeBVH.hpp"
 
 #include <atomic>
 #include <cmath>
+#include <iostream>
+#include <numeric>
 
 std::array<float, 3> vectorField(std::array<float, 3> x)
 {
@@ -15,12 +18,13 @@ std::array<float, 3> vectorField(std::array<float, 3> x)
 
 int main()
 {
+
     std::atomic_bool continue_running {true};
     ELN::GUI gui {continue_running};
     gui.init();
 
-    constexpr unsigned WIDTH {1024};
-    constexpr unsigned HEIGHT {1024};
+    constexpr unsigned WIDTH {100};
+    constexpr unsigned HEIGHT {100};
     constexpr unsigned CHANNELS {3};
 
     std::array<uint8_t, WIDTH * HEIGHT * CHANNELS> image {};
@@ -53,7 +57,7 @@ int main()
             float y_0 = yViewport;
             float z_0 = zViewport;
 
-            for (size_t steps {0}; steps < 5000; ++steps)
+            for (size_t steps {0}; steps < 500; ++steps)
             {
                 const auto field = vectorField({x_0, y_0, z_0});
                 float x = (rayDirVector[0] + 0.1f * field[0]) * stepsize + x_0;
