@@ -1,4 +1,5 @@
 #include "GUI/GUI.hpp"
+#include "Scene/TreeBVH/TreeBVH.hpp"
 
 #include <atomic>
 #include <cmath>
