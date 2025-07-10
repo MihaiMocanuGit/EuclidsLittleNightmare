@@ -1,4 +1,4 @@
-set(BOOST_INCLUDE_LIBRARIES math) # for now, math is only included to check if linking with boost works.
+set(BOOST_INCLUDE_LIBRARIES container lockfree) # for now, math is only included to check if linking with boost works.
 set(BOOST_ENABLE_CMAKE ON)
 include(FetchContent)
 FetchContent_Declare(
