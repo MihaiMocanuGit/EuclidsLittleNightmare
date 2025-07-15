@@ -8,3 +8,5 @@ target_include_directories(TreeBVH
 
 target_link_options(TreeBVH PUBLIC -ltbb)
 target_link_libraries(TreeBVH PUBLIC third_party Utils)
+
+target_sources(unit_tests PUBLIC unit_test.cpp)
