@@ -1,108 +1,178 @@
+#include "Eigen/Geometry"
 #include "GUI/GUI.hpp"
 #include "Scene/TreeBVH/TreeBVH.hpp"
+#include "Utils/utils.hpp"
 
 #include <atomic>
 #include <cmath>
+#include <execution>
 #include <iostream>
 #include <numeric>
+#include <random>
+
+// CAUTION - ENTER AT YOUR OWN RISK!
+//
+// The current state of main.cpp file represents a sandbox like environment for experimenting with
+// different concepts. This is not the "final application".
+//
+// No recommended coding practices are followed in this wild west.
 
 std::array<float, 3> vectorField(std::array<float, 3> x)
 {
-    std::array<float, 3> v = {std::sin(x[0] + x[1]), 0, 0};
+    std::array<float, 3> v = {400 - x[0], 400 - x[1], 400 - x[2]};
     float norm = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-    v[0] /= norm;
-    v[1] /= norm;
-    v[2] /= norm;
+    if (norm >= 0.01f)
+    {
+        v[0] /= norm;
+        v[1] /= norm;
+        v[2] /= norm;
+    }
     return v;
 }
 
+struct Elipsoid_t
+{
+    Eigen::Vector3f center;
+    Eigen::Vector3f coeff;
+    std::array<uint8_t, 3> color;
+
+    constexpr bool checkHit(const Eigen::Vector3f &position) const noexcept
+    {
+        float coeffSum {0};
+        for (unsigned dim {0}; dim < 3; ++dim)
+            coeffSum += std::pow(position[dim] - center[dim], 2.0f) / std::pow(coeff[dim], 2.0f);
+        return coeffSum <= 1.0f;
+    }
+
+    ELN::BVH::Boundary_t<float> boundary() const noexcept
+    {
+        Eigen::Vector3f min {center - coeff};
+        Eigen::Vector3f max {center + coeff};
+        return {min, max};
+    }
+};
+
 int main()
 {
+
+    constexpr unsigned WIDTH {1600};
+    constexpr unsigned HEIGHT {900};
+    constexpr unsigned CHANNELS {3};
+    const ELN::BVH::Boundary_t<float> WORLD_BD {
+        1.0f * Eigen::Vector3f {-1.0f * WIDTH, -1.0f * HEIGHT, 0.0f},
+        1.0f * Eigen::Vector3f {WIDTH, HEIGHT, HEIGHT}};
+    constexpr size_t NO_ELEMENTS = 500;
+    std::vector<ELN::BVH::CompactTree<Elipsoid_t>::ElemBdrPair> elements;
+    elements.reserve(NO_ELEMENTS);
+    std::mt19937 gen;
+    for (size_t i {0}; i < NO_ELEMENTS; ++i)
+    {
+        const ELN::BVH::Boundary_t<float> OBJ_BD {Eigen::Vector3f {19.0f, 19.0f, 19.0f},
+                                                  Eigen::Vector3f {20.0f, 20.0f, 20.0f}};
+        const auto color = [&]()
+        {
+            std::uniform_int_distribution<uint8_t> distrib(64, 255);
+            return std::array<uint8_t, 3> {distrib(gen), distrib(gen), distrib(gen)};
+        };
+        Elipsoid_t object {.center = WORLD_BD.sample(), .coeff = OBJ_BD.sample(), .color = color()};
+        elements.emplace_back(object, object.boundary());
+    }
+    const ELN::BVH::CompactTree<Elipsoid_t> tree {std::move(elements)};
 
     std::atomic_bool continue_running {true};
     ELN::GUI gui {continue_running};
     gui.init();
 
-    constexpr unsigned WIDTH {100};
-    constexpr unsigned HEIGHT {100};
-    constexpr unsigned CHANNELS {3};
-
     std::array<uint8_t, WIDTH * HEIGHT * CHANNELS> image {};
-    constexpr float cameraOrigin[3] = {0.0f, 0.0f, 0.0f};
-    constexpr float distanceToViewport {100.0f};
-    constexpr float stepsize = 0.5f;
+    constexpr float distanceToViewport {HEIGHT / 2.0f};
+    constexpr float cameraOrigin[3] = {0.0f, 0.0f, -distanceToViewport};
+    constexpr float fastStepSize = 1.0f;
+    constexpr float preciseStepSize = 1.0f;
 
-    constexpr float sphereCenter[3] = {0.0f, 0.0f, 200.0f};
-    constexpr float sphereRadius = 75.0f;
+    constexpr auto yPixels = ELN::Utils::array_iota<HEIGHT>(0U);
+    constexpr auto xPixels = ELN::Utils::array_iota<HEIGHT>(0U);
 
-    for (unsigned pixel_y {0}; pixel_y < HEIGHT; ++pixel_y)
-    {
-        for (unsigned pixel_x {0}; pixel_x < WIDTH; ++pixel_x)
-        {
-            float xViewport = static_cast<float>(pixel_x) - WIDTH / 2.0f;
-            float yViewport = static_cast<float>(pixel_y) - HEIGHT / 2.0f;
-            float zViewport = distanceToViewport;
+    std::for_each(std::execution::par_unseq, yPixels.begin(), yPixels.end(),
+                  [&](unsigned pixel_y)
+                  {
+                      for (unsigned pixel_x {0}; pixel_x < WIDTH; ++pixel_x)
+                      {
+                          float xViewport = static_cast<float>(pixel_x) - WIDTH / 2.0f;
+                          float yViewport = static_cast<float>(pixel_y) - HEIGHT / 2.0f;
+                          float zViewport = distanceToViewport + cameraOrigin[2];
 
-            float rayDirVector[3] = {xViewport - cameraOrigin[0], yViewport - cameraOrigin[1],
-                                     zViewport - cameraOrigin[2]};
-            float rayDirVectorNorm =
-                std::sqrt(rayDirVector[0] * rayDirVector[0] + rayDirVector[1] * rayDirVector[1] +
-                          rayDirVector[2] * rayDirVector[2]);
+                          float rayDirVector[3] = {xViewport - cameraOrigin[0],
+                                                   yViewport - cameraOrigin[1],
+                                                   zViewport - cameraOrigin[2]};
+                          float rayDirVectorNorm = std::sqrt(rayDirVector[0] * rayDirVector[0] +
+                                                             rayDirVector[1] * rayDirVector[1] +
+                                                             rayDirVector[2] * rayDirVector[2]);
 
-            rayDirVector[0] /= rayDirVectorNorm;
-            rayDirVector[1] /= rayDirVectorNorm;
-            rayDirVector[2] /= rayDirVectorNorm;
+                          rayDirVector[0] /= rayDirVectorNorm;
+                          rayDirVector[1] /= rayDirVectorNorm;
+                          rayDirVector[2] /= rayDirVectorNorm;
 
-            float x_0 = xViewport;
-            float y_0 = yViewport;
-            float z_0 = zViewport;
+                          float x_0 = xViewport;
+                          float y_0 = yViewport;
+                          float z_0 = zViewport;
 
-            for (size_t steps {0}; steps < 500; ++steps)
-            {
-                const auto field = vectorField({x_0, y_0, z_0});
-                float x = (rayDirVector[0] + 0.1f * field[0]) * stepsize + x_0;
-                float y = (rayDirVector[1] + 0.1f * field[1]) * stepsize + y_0;
-                float z = (rayDirVector[2] + 0.1f * field[2]) * stepsize + z_0;
+                          float stepsize = fastStepSize;
+                          const float MAX_LEN {std::sqrtf(std::powf(WORLD_BD.max()[0], 2.0f) +
+                                                          std::powf(WORLD_BD.max()[1], 2.0f) +
+                                                          std::powf(WORLD_BD.max()[2], 2.0f)) *
+                                               1.2f};
+                          for (float arcLen {0}; arcLen < MAX_LEN; arcLen += stepsize)
+                          {
+                              const auto field = vectorField({x_0, y_0, z_0});
+                              float x = (rayDirVector[0] + 0.005f * field[0]) * stepsize + x_0;
+                              float y = (rayDirVector[1] + 0.005f * field[1]) * stepsize + y_0;
+                              float z = (rayDirVector[2] + 0.005f * field[2]) * stepsize + z_0;
 
-                rayDirVector[0] = x - x_0;
-                rayDirVector[1] = y - y_0;
-                rayDirVector[2] = z - z_0;
-                rayDirVectorNorm = std::sqrt(rayDirVector[0] * rayDirVector[0] +
-                                             rayDirVector[1] * rayDirVector[1] +
-                                             rayDirVector[2] * rayDirVector[2]);
-                rayDirVector[0] /= rayDirVectorNorm;
-                rayDirVector[1] /= rayDirVectorNorm;
-                rayDirVector[2] /= rayDirVectorNorm;
+                              const auto setColorPixel = [&](const std::array<uint8_t, 3> &color)
+                              {
+                                  image[pixel_y * 3 * WIDTH + 3 * pixel_x + 0] = color[0];
+                                  image[pixel_y * 3 * WIDTH + 3 * pixel_x + 1] = color[1];
+                                  image[pixel_y * 3 * WIDTH + 3 * pixel_x + 2] = color[2];
+                              };
+                              if (WORLD_BD.exteriorDistance(Eigen::Vector3f {x, y, z}) > 50.0f)
+                              {
+                                  setColorPixel({0, 0, 0});
+                                  break;
+                              }
+                              rayDirVector[0] = x - x_0;
+                              rayDirVector[1] = y - y_0;
+                              rayDirVector[2] = z - z_0;
+                              rayDirVectorNorm = std::sqrt(rayDirVector[0] * rayDirVector[0] +
+                                                           rayDirVector[1] * rayDirVector[1] +
+                                                           rayDirVector[2] * rayDirVector[2]);
+                              rayDirVector[0] /= rayDirVectorNorm;
+                              rayDirVector[1] /= rayDirVectorNorm;
+                              rayDirVector[2] /= rayDirVectorNorm;
 
-                x_0 = x;
-                y_0 = y;
-                z_0 = z;
+                              x_0 = x;
+                              y_0 = y;
+                              z_0 = z;
 
-                float xs_2 = x - sphereCenter[0];
-                xs_2 *= xs_2;
-
-                float ys_2 = y - sphereCenter[1];
-                ys_2 *= ys_2;
-
-                float zs_2 = z - sphereCenter[2];
-                zs_2 *= zs_2;
-
-                if (xs_2 + ys_2 + zs_2 <= sphereRadius * sphereRadius)
-                {
-                    image[pixel_y * 3 * WIDTH + 3 * pixel_x + 0] = 255;
-                    image[pixel_y * 3 * WIDTH + 3 * pixel_x + 1] = 255;
-                    image[pixel_y * 3 * WIDTH + 3 * pixel_x + 2] = 255;
-                    break;
-                }
-                else
-                {
-                    image[pixel_y * 3 * WIDTH + 3 * pixel_x + 0] = 0;
-                    image[pixel_y * 3 * WIDTH + 3 * pixel_x + 1] = 0;
-                    image[pixel_y * 3 * WIDTH + 3 * pixel_x + 2] = 0;
-                }
-            }
-        }
-    }
+                              const auto hitQuery = tree.queryPosition({x, y, z});
+                              bool hitObject {false};
+                              setColorPixel({0, 0, 0});
+                              for (const auto &boundary : hitQuery)
+                              {
+                                  stepsize = preciseStepSize;
+                                  if (boundary.get().checkHit({x, y, z}))
+                                  {
+                                      setColorPixel(boundary.get().color);
+                                      hitObject = true;
+                                      break;
+                                  }
+                              }
+                              if (hitObject)
+                                  break;
+                              else if (hitQuery.empty())
+                                  stepsize = fastStepSize;
+                          }
+                      }
+                  });
 
     // Create a OpenGL texture identifier
     GLuint image_texture;
