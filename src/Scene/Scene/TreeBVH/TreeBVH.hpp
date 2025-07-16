@@ -1,8 +1,7 @@
 #pragma once
 
 #include "Eigen/Geometry"
-#include "Eigen/src/Core/Matrix.h"
-#include "utils.hpp"
+#include "Utils/utils.hpp"
 
 #include <algorithm>
 #include <cassert>
@@ -59,8 +58,8 @@ class CompactTree
     void build(std::vector<ElemBdrPair> &&elementsWithBoundaries);
 
     // TODO:: boost::container::small_vector<>?
-    std::vector<std::reference_wrapper<ElementData>>
-        queryPosition(const Eigen::Vector3<Real_t> &position);
+    std::vector<std::reference_wrapper<const ElementData>>
+        queryPosition(const Eigen::Vector3<Real_t> &position) const;
 };
 
 template <class ElementData, std::floating_point Real_t>
@@ -223,12 +222,12 @@ void CompactTree<ElementData, Real_t>::build(std::vector<ElemBdrPair> &&elements
 }
 
 template <class ElementData, std::floating_point Real_t>
-std::vector<std::reference_wrapper<ElementData>>
-    CompactTree<ElementData, Real_t>::queryPosition(const Eigen::Vector3<Real_t> &position)
+std::vector<std::reference_wrapper<const ElementData>>
+    CompactTree<ElementData, Real_t>::queryPosition(const Eigen::Vector3<Real_t> &position) const
 {
     assert(m_tree.size() > 0);
     assert(not m_isNodeEmpty(m_ROOT_INDEX));
-    std::vector<std::reference_wrapper<ElementData>> result;
+    std::vector<std::reference_wrapper<const ElementData>> result;
     // special case for when the tree contains only one elementData. In this context, one cannot
     // iterate through the children as there are no such elements
     if (m_tree.size() == 1)
