@@ -1,8 +1,7 @@
 #pragma once
 
 #include "Eigen/Geometry"
-#include "Eigen/src/Core/Matrix.h"
-#include "utils.hpp"
+#include "Utils/utils.hpp"
 
 #include <algorithm>
 #include <cassert>

@@ -7,4 +7,4 @@ target_include_directories(TreeBVH
         "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 
 target_link_options(TreeBVH PUBLIC -ltbb)
-target_link_libraries(TreeBVH PUBLIC third_party)
+target_link_libraries(TreeBVH PUBLIC third_party Utils)
