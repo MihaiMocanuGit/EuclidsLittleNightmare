@@ -2,6 +2,7 @@
 #include "GUI/GUI.hpp"
 #include "Scene/TreeBVH/TreeBVH.hpp"
 #include "Utils/utils.hpp"
+#include "imgui.h"
 
 #include <atomic>
 #include <cmath>
@@ -92,87 +93,93 @@ int main()
     constexpr auto yPixels = ELN::Utils::array_iota<HEIGHT>(0U);
     constexpr auto xPixels = ELN::Utils::array_iota<HEIGHT>(0U);
 
-    std::for_each(std::execution::par_unseq, yPixels.begin(), yPixels.end(),
-                  [&](unsigned pixel_y)
-                  {
-                      for (unsigned pixel_x {0}; pixel_x < WIDTH; ++pixel_x)
-                      {
-                          float xViewport = static_cast<float>(pixel_x) - WIDTH / 2.0f;
-                          float yViewport = static_cast<float>(pixel_y) - HEIGHT / 2.0f;
-                          float zViewport = distanceToViewport + cameraOrigin[2];
+    std::thread worker {
+        [&]()
+        {
+            std::for_each(
+                std::execution::par_unseq, yPixels.begin(), yPixels.end(),
+                [&](unsigned pixel_y)
+                {
+                    for (unsigned pixel_x {0}; pixel_x < WIDTH; ++pixel_x)
+                    {
+                        float xViewport = static_cast<float>(pixel_x) - WIDTH / 2.0f;
+                        float yViewport = static_cast<float>(pixel_y) - HEIGHT / 2.0f;
+                        float zViewport = distanceToViewport + cameraOrigin[2];
 
-                          float rayDirVector[3] = {xViewport - cameraOrigin[0],
-                                                   yViewport - cameraOrigin[1],
-                                                   zViewport - cameraOrigin[2]};
-                          float rayDirVectorNorm = std::sqrt(rayDirVector[0] * rayDirVector[0] +
-                                                             rayDirVector[1] * rayDirVector[1] +
-                                                             rayDirVector[2] * rayDirVector[2]);
-
-                          rayDirVector[0] /= rayDirVectorNorm;
-                          rayDirVector[1] /= rayDirVectorNorm;
-                          rayDirVector[2] /= rayDirVectorNorm;
-
-                          float x_0 = xViewport;
-                          float y_0 = yViewport;
-                          float z_0 = zViewport;
-
-                          float stepsize = fastStepSize;
-                          const float MAX_LEN {std::sqrtf(std::powf(WORLD_BD.max()[0], 2.0f) +
-                                                          std::powf(WORLD_BD.max()[1], 2.0f) +
-                                                          std::powf(WORLD_BD.max()[2], 2.0f)) *
-                                               1.2f};
-                          for (float arcLen {0}; arcLen < MAX_LEN; arcLen += stepsize)
-                          {
-                              const auto field = vectorField({x_0, y_0, z_0});
-                              float x = (rayDirVector[0] + 0.005f * field[0]) * stepsize + x_0;
-                              float y = (rayDirVector[1] + 0.005f * field[1]) * stepsize + y_0;
-                              float z = (rayDirVector[2] + 0.005f * field[2]) * stepsize + z_0;
-
-                              const auto setColorPixel = [&](const std::array<uint8_t, 3> &color)
-                              {
-                                  image[pixel_y * 3 * WIDTH + 3 * pixel_x + 0] = color[0];
-                                  image[pixel_y * 3 * WIDTH + 3 * pixel_x + 1] = color[1];
-                                  image[pixel_y * 3 * WIDTH + 3 * pixel_x + 2] = color[2];
-                              };
-                              if (WORLD_BD.exteriorDistance(Eigen::Vector3f {x, y, z}) > 50.0f)
-                              {
-                                  setColorPixel({0, 0, 0});
-                                  break;
-                              }
-                              rayDirVector[0] = x - x_0;
-                              rayDirVector[1] = y - y_0;
-                              rayDirVector[2] = z - z_0;
-                              rayDirVectorNorm = std::sqrt(rayDirVector[0] * rayDirVector[0] +
+                        float rayDirVector[3] = {xViewport - cameraOrigin[0],
+                                                 yViewport - cameraOrigin[1],
+                                                 zViewport - cameraOrigin[2]};
+                        float rayDirVectorNorm = std::sqrt(rayDirVector[0] * rayDirVector[0] +
                                                            rayDirVector[1] * rayDirVector[1] +
                                                            rayDirVector[2] * rayDirVector[2]);
-                              rayDirVector[0] /= rayDirVectorNorm;
-                              rayDirVector[1] /= rayDirVectorNorm;
-                              rayDirVector[2] /= rayDirVectorNorm;
 
-                              x_0 = x;
-                              y_0 = y;
-                              z_0 = z;
+                        rayDirVector[0] /= rayDirVectorNorm;
+                        rayDirVector[1] /= rayDirVectorNorm;
+                        rayDirVector[2] /= rayDirVectorNorm;
 
-                              const auto hitQuery = tree.queryPosition({x, y, z});
-                              bool hitObject {false};
-                              setColorPixel({0, 0, 0});
-                              for (const auto &boundary : hitQuery)
-                              {
-                                  stepsize = preciseStepSize;
-                                  if (boundary.get().checkHit({x, y, z}))
-                                  {
-                                      setColorPixel(boundary.get().color);
-                                      hitObject = true;
-                                      break;
-                                  }
-                              }
-                              if (hitObject)
-                                  break;
-                              else if (hitQuery.empty())
-                                  stepsize = fastStepSize;
-                          }
-                      }
-                  });
+                        float x_0 = xViewport;
+                        float y_0 = yViewport;
+                        float z_0 = zViewport;
+
+                        float stepsize = fastStepSize;
+                        const float MAX_LEN {std::sqrtf(std::powf(WORLD_BD.max()[0], 2.0f) +
+                                                        std::powf(WORLD_BD.max()[1], 2.0f) +
+                                                        std::powf(WORLD_BD.max()[2], 2.0f)) *
+                                             1.2f};
+                        for (float arcLen {0}; arcLen < MAX_LEN; arcLen += stepsize)
+                        {
+                            const auto field = vectorField({x_0, y_0, z_0});
+                            float x = (rayDirVector[0] + 0.005f * field[0]) * stepsize + x_0;
+                            float y = (rayDirVector[1] + 0.005f * field[1]) * stepsize + y_0;
+                            float z = (rayDirVector[2] + 0.005f * field[2]) * stepsize + z_0;
+
+                            const auto setColorPixel = [&](const std::array<uint8_t, 3> &color)
+                            {
+                                image[pixel_y * 3 * WIDTH + 3 * pixel_x + 0] = color[0];
+                                image[pixel_y * 3 * WIDTH + 3 * pixel_x + 1] = color[1];
+                                image[pixel_y * 3 * WIDTH + 3 * pixel_x + 2] = color[2];
+                            };
+                            if (WORLD_BD.exteriorDistance(Eigen::Vector3f {x, y, z}) > 50.0f)
+                            {
+                                setColorPixel({0, 0, 0});
+                                break;
+                            }
+                            rayDirVector[0] = x - x_0;
+                            rayDirVector[1] = y - y_0;
+                            rayDirVector[2] = z - z_0;
+                            rayDirVectorNorm = std::sqrt(rayDirVector[0] * rayDirVector[0] +
+                                                         rayDirVector[1] * rayDirVector[1] +
+                                                         rayDirVector[2] * rayDirVector[2]);
+                            rayDirVector[0] /= rayDirVectorNorm;
+                            rayDirVector[1] /= rayDirVectorNorm;
+                            rayDirVector[2] /= rayDirVectorNorm;
+
+                            x_0 = x;
+                            y_0 = y;
+                            z_0 = z;
+
+                            const auto hitQuery = tree.queryPosition({x, y, z});
+                            bool hitObject {false};
+                            setColorPixel({0, 0, 0});
+                            for (const auto &boundary : hitQuery)
+                            {
+                                stepsize = preciseStepSize;
+                                if (boundary.get().checkHit({x, y, z}))
+                                {
+                                    setColorPixel(boundary.get().color);
+                                    hitObject = true;
+                                    break;
+                                }
+                            }
+                            if (hitObject)
+                                break;
+                            else if (hitQuery.empty())
+                                stepsize = fastStepSize;
+                        }
+                    }
+                });
+        }};
+    worker.detach();
 
     // Create a OpenGL texture identifier
     GLuint image_texture;
@@ -196,10 +203,18 @@ int main()
             bool demo = true;
             ImGui::ShowDemoWindow(&demo);
 #endif
-            ImGui::Begin("OpenGL Texture Text");
-            ImGui::Text("pointer = %x", image_texture);
-            ImGui::Text("size = %d x %d", WIDTH, HEIGHT);
-            ImGui::Image((ImTextureID)(intptr_t)image_texture, ImVec2(WIDTH, HEIGHT));
+            // Upload current pixels into texture written by separate thread.
+            // This most probably is undefined behaviour as the texture is updated in another thread
+            // without any synchronisation/atomic structure.
+            glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, WIDTH, HEIGHT, 0, GL_RGB, GL_UNSIGNED_BYTE,
+                         image.data());
+
+            ImGui::Begin("Result");
+            ImVec2 windowSize {ImGui::GetWindowSize()};
+            float aspectRatio {static_cast<float>(WIDTH) / HEIGHT};
+            ImGui::Image((ImTextureID)(intptr_t)image_texture,
+                         ImVec2(windowSize.y * aspectRatio, windowSize.y));
             ImGui::End();
         });
 }
