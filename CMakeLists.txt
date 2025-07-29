@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.0)
-project(EuclidsLittleNightmare VERSION 0.0.0 LANGUAGES CXX)
+project(EuclidsLittleNightmare VERSION 0.0.0 LANGUAGES CXX C)
 
 set(CMAKE_CXX_STANDARD 20)
 
