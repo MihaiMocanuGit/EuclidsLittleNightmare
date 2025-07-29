@@ -18,6 +18,7 @@ add_library(imgui
   ${imgui_git_SOURCE_DIR}/imgui_demo.cpp
   ${imgui_git_SOURCE_DIR}/backends/imgui_impl_opengl3.cpp
   ${imgui_git_SOURCE_DIR}/backends/imgui_impl_sdl2.cpp
+  ${imgui_git_SOURCE_DIR}/backends/imgui_impl_glfw.cpp
   ${imgui_git_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
 )
 find_package(OpenGL REQUIRED)
@@ -26,5 +27,5 @@ if(TARGET SDL2::SDL2main)
   # It has an implicit dependency on SDL2 functions, so it MUST be added before SDL2::SDL2 (or SDL2::SDL2-static)
   target_link_libraries(imgui PUBLIC SDL2::SDL2main)
 endif()
-target_link_libraries(imgui PUBLIC SDL2::SDL2 OpenGL::GL)
+target_link_libraries(imgui PUBLIC SDL2::SDL2 OpenGL::GL glfw)
 target_include_directories(imgui PUBLIC ${imgui_git_SOURCE_DIR})
