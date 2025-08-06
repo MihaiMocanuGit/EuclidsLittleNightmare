@@ -1,4 +1,5 @@
 #include "Eigen/Geometry"
+#include "stb_image.h"
 ///////
 #include "glad/glad.h"
 ///////
